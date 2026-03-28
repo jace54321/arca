@@ -1,0 +1,10 @@
+{
+  "properties": [
+    {
+      "name": "arca.supabase.url",
+      "type": "java.lang.String",
+      "description": "Supabase project URL for JWKS (JWT verification)",
+      "sourceType": "com.arca.config.ArcaProperties"
+    }
+  ]
+}
