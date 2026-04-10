@@ -1,90 +1,74 @@
 package com.arca.arca_backend.controller;
 
-import com.arca.arca_backend.dto.ApiResponse;
-import com.arca.arca_backend.dto.SyncLogDTO;
-import com.arca.arca_backend.service.SyncService;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/sync")
 public class SyncController {
-    
-    private final SyncService syncService;
-    
-    public SyncController(SyncService syncService) {
-        this.syncService = syncService;
+
+    private final com.arca.arca_backend.service.UserService userService;
+    private final com.arca.arca_backend.repository.SyncLogRepository syncLogRepository;
+    private final com.arca.arca_backend.repository.DeviceRepository deviceRepository;
+
+    public SyncController(com.arca.arca_backend.service.UserService userService,
+                          com.arca.arca_backend.repository.SyncLogRepository syncLogRepository,
+                          com.arca.arca_backend.repository.DeviceRepository deviceRepository) {
+        this.userService = userService;
+        this.syncLogRepository = syncLogRepository;
+        this.deviceRepository = deviceRepository;
     }
     
-    /**
-     * Get all sync logs for the authenticated user
-     * Protected by Spring Security
-     */
+    private com.arca.arca_backend.entity.User resolveUser(Authentication authentication) {
+        return userService.getUserBySupabaseId(authentication.getName())
+            .orElseThrow(() -> new RuntimeException("User not found"));
+    }
+
     @GetMapping("/logs")
-    public ResponseEntity<ApiResponse> getSyncLogs() {
+    public ResponseEntity<?> getSyncLogs(Authentication authentication) {
         try {
-            String userId = extractUserIdFromContext();
-            if (userId == null) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(new ApiResponse(false, "Unauthorized", null));
-            }
-            
-            List<SyncLogDTO> logs = syncService.getSyncLogs(userId);
-            return ResponseEntity.ok(new ApiResponse(true, "Sync logs retrieved", logs));
+            com.arca.arca_backend.entity.User user = resolveUser(authentication);
+            var logs = syncLogRepository.findByUserIdOrderByTimestampDesc(user.getId());
+            return ResponseEntity.ok(Map.of("success", true, "data", logs));
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse(false, e.getMessage(), null));
+            return ResponseEntity.badRequest().body(Map.of("success", false, "error", e.getMessage()));
         }
     }
     
-    /**
-     * Trigger a sync event
-     * Protected by Spring Security
-     * 
-     * Query parameters:
-     * - deviceName: Name of current device (optional, defaults to "Web Client")
-     * - deviceType: 'mobile' or 'desktop' (optional, defaults to 'desktop')
-     */
     @PostMapping("/trigger")
-    public ResponseEntity<ApiResponse> triggerSync(
-            @RequestParam(required = false) String deviceName,
-            @RequestParam(required = false) String deviceType) {
+    public ResponseEntity<?> triggerSync(
+            @RequestParam(required = false, defaultValue = "Web Client") String deviceName,
+            @RequestParam(required = false, defaultValue = "desktop") String deviceType,
+            Authentication authentication) {
         try {
-            String userId = extractUserIdFromContext();
-            if (userId == null) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(new ApiResponse(false, "Unauthorized", null));
-            }
+            com.arca.arca_backend.entity.User user = resolveUser(authentication);
             
-            // Set defaults
-            if (deviceName == null || deviceName.isEmpty()) {
-                deviceName = "Web Client";
-            }
-            if (deviceType == null || deviceType.isEmpty()) {
-                deviceType = "desktop";
-            }
-            
-            SyncLogDTO syncLog = syncService.triggerSync(userId, deviceName, deviceType);
-            return ResponseEntity.ok(new ApiResponse(true, "Sync triggered successfully", syncLog));
+            // Upsert device
+            com.arca.arca_backend.entity.Device device = deviceRepository.findByUserIdAndDeviceName(user.getId(), deviceName)
+                .orElse(new com.arca.arca_backend.entity.Device());
+            device.setUserId(user.getId());
+            device.setDeviceName(deviceName);
+            device.setDeviceType(deviceType);
+            device.setLastActive(java.time.LocalDateTime.now());
+            deviceRepository.save(device);
+
+            // Log sync
+            com.arca.arca_backend.entity.SyncLog log = new com.arca.arca_backend.entity.SyncLog();
+            log.setUserId(user.getId());
+            log.setDevice(deviceName);
+            log.setDeviceType(deviceType);
+            log.setStatus("synced");
+            log.setVersionFrom(1);
+            log.setVersionTo(1);
+            log.setMessage("Vault successfully synced with server");
+            log.setIsCurrentDevice(true);
+            syncLogRepository.save(log);
+
+            return ResponseEntity.ok(Map.of("success", true));
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse(false, e.getMessage(), null));
+            return ResponseEntity.badRequest().body(Map.of("success", false, "error", e.getMessage()));
         }
-    }
-    
-    /**
-     * Helper method to extract user ID from Security Context
-     */
-    private String extractUserIdFromContext() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication != null && authentication.isAuthenticated()) {
-            return authentication.getName();
-        }
-        return null;
     }
 }

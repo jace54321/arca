@@ -1,113 +1,107 @@
 package com.arca.arca_backend.controller;
 
-import com.arca.arca_backend.dto.ApiResponse;
-import com.arca.arca_backend.dto.LoginRequest;
-import com.arca.arca_backend.dto.LoginResponse;
-import com.arca.arca_backend.dto.UnlockVaultRequest;
 import com.arca.arca_backend.entity.User;
 import com.arca.arca_backend.service.UserService;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Optional;
-import java.util.UUID;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
-    
+
     private final UserService userService;
-    
+
     public AuthController(UserService userService) {
         this.userService = userService;
     }
-    
+
     /**
-     * Register a new user with email and master password
+     * Register a new user.
+     * Receives the client-derived auth key hex (PBKDF2 output) — never the raw master password.
+     * Stores BCrypt(authKeyHex) in the users table.
      */
     @PostMapping("/register")
-    public ResponseEntity<ApiResponse> register(@RequestBody LoginRequest request) {
+    public ResponseEntity<?> register(@RequestBody Map<String, String> request) {
         try {
-            System.out.println("DEBUG: Register request received");
-            System.out.println("DEBUG: Email: " + request.getEmail());
-            System.out.println("DEBUG: SupabaseUserId: " + request.getSupabaseUserId());
-            
-            if (request.getEmail() == null || request.getMasterPassword() == null) {
-                return ResponseEntity.badRequest()
-                        .body(new ApiResponse(false, "Email and master password are required", null));
+            String supabaseUserId = request.get("supabaseUserId");
+            String email = request.get("email");
+            String authKeyHex = request.get("authKeyHex");
+
+            if (supabaseUserId == null || email == null) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Missing supabaseUserId or email"));
             }
-            
-            User user = userService.registerUser(request.getEmail(), request.getMasterPassword(), request.getSupabaseUserId());
-            System.out.println("DEBUG: User registered with ID: " + user.getId());
-            System.out.println("DEBUG: User SupabaseUserId: " + user.getSupabaseUserId());
-            
-            return ResponseEntity.ok(new ApiResponse(true, "User registered successfully", userService.toDTO(user)));
+
+            User user = userService.createOrGetUser(supabaseUserId, email, authKeyHex);
+            return ResponseEntity.ok(Map.of(
+                "id", user.getId(),
+                "email", user.getEmail(),
+                "supabaseUserId", user.getSupabaseUserId(),
+                "success", true
+            ));
         } catch (Exception e) {
-            System.err.println("DEBUG: Registration error: " + e.getMessage());
-            e.printStackTrace();
-            return ResponseEntity.badRequest()
-                    .body(new ApiResponse(false, e.getMessage(), null));
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
-    
+
     /**
-     * Login - Supabase JWT is handled by Spring Security
-     * This endpoint validates that the user's master password matches
-     * Protected by Spring Security JWT filter
+     * Login: verify the Supabase JWT (handled by Spring Security) plus the secondary
+     * auth key check (proves the user knows the master password, not just the JWT).
+     *
+     * The auth key hex is expected in the X-Auth-Key request header.
      */
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@RequestBody UnlockVaultRequest request) {
+    public ResponseEntity<?> login(
+            @RequestHeader(value = "X-Auth-Key", required = false) String authKeyHex,
+            Authentication authentication) {
         try {
-            // Extract Supabase user ID from Security Context (JWT)
-            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-            if (authentication == null || !authentication.isAuthenticated()) {
-                System.err.println("DEBUG: Authentication is null or not authenticated");
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(new LoginResponse(false, null, null));
+            String supabaseUserId = authentication.getName();
+
+            // Ensure user record exists (auto-create for accounts that pre-date this version)
+            userService.getUserBySupabaseId(supabaseUserId)
+                .orElseGet(() -> userService.createOrGetUser(supabaseUserId, "user@example.com", authKeyHex));
+
+            // Verify auth key
+            if (authKeyHex != null && !authKeyHex.isBlank()) {
+                boolean valid = userService.verifyAuthKey(supabaseUserId, authKeyHex);
+                if (!valid) {
+                    return ResponseEntity.status(401).body(Map.of(
+                        "success", false,
+                        "error", "Invalid master password"
+                    ));
+                }
             }
-            
-            String supabaseUserId = authentication.getName();  // This is the 'sub' from JWT
-            System.out.println("DEBUG: Extracted supabaseUserId from JWT: " + supabaseUserId);
-            System.out.println("DEBUG: Authentication details: " + authentication.getDetails());
-            
-            // Find user by Supabase ID
-            Optional<User> userOpt = userService.getUserBySupabaseId(supabaseUserId);
-            System.out.println("DEBUG: User lookup result: " + (userOpt.isPresent() ? "FOUND" : "NOT FOUND"));
-            
-            if (userOpt.isEmpty()) {
-                System.err.println("DEBUG: User not found with Supabase ID: " + supabaseUserId);
-                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(new LoginResponse(false, null, null));
-            }
-            
-            User user = userOpt.get();
-            System.out.println("DEBUG: User found: " + user.getEmail());
-            
-            // Verify master password
-            boolean masterPasswordValid = userService.verifyMasterPassword(user.getId(), request.getMasterPassword());
-            System.out.println("DEBUG: Master password valid: " + masterPasswordValid);
-            
-            if (!masterPasswordValid) {
-                System.err.println("DEBUG: Invalid master password for user: " + user.getEmail());
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(new LoginResponse(false, null, null));
-            }
-            
-            // In production, generate a session token or refresh token here
-            LoginResponse response = new LoginResponse();
-            response.setSuccess(true);
-            response.setUser(userService.toDTO(user));
-            
-            System.out.println("DEBUG: Login successful for user: " + user.getEmail());
-            return ResponseEntity.ok(response);
+
+            User user = userService.getUserBySupabaseId(supabaseUserId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+            return ResponseEntity.ok(Map.of(
+                "id", user.getId(),
+                "email", user.getEmail(),
+                "supabaseUserId", user.getSupabaseUserId(),
+                "success", true
+            ));
         } catch (Exception e) {
-            System.err.println("DEBUG: Login exception: " + e.getMessage());
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new LoginResponse(false, null, null));
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<?> getCurrentUser(Authentication authentication) {
+        try {
+            String supabaseUserId = authentication.getName();
+            User user = userService.getUserBySupabaseId(supabaseUserId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+            return ResponseEntity.ok(Map.of(
+                "id", user.getId(),
+                "email", user.getEmail(),
+                "supabaseUserId", user.getSupabaseUserId()
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
 }

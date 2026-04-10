@@ -5,7 +5,7 @@ import { useArca } from '../context/ArcaContext';
 import { apiClient } from '@/services/apiClient';
 
 export function SettingsPage() {
-  const { isOnline, setIsOnline, triggerSync, username, avatarUrl, updateProfile, userEmail } = useArca();
+  const { isOnline, setIsOnline, triggerSync, username, avatarUrl, updateProfile, userEmail, devices } = useArca();
   const [autoSync, setAutoSync] = useState(true);
   const [clearConfirm, setClearConfirm] = useState(false);
 
@@ -274,7 +274,7 @@ export function SettingsPage() {
             {
               label: 'Force Sync',
               desc: 'Manually trigger full vault synchronization',
-              control: <ArcaButton variant="secondary" size="sm" leftIcon={<RefreshCw size={13} />} onClick={triggerSync}>SYNC NOW</ArcaButton>,
+              control: <ArcaButton variant="secondary" size="sm" leftIcon={<RefreshCw size={13} />} onClick={() => triggerSync()}>SYNC NOW</ArcaButton>,
             },
           ],
         },
@@ -282,10 +282,14 @@ export function SettingsPage() {
           num: '04',
           title: 'DEVICES',
           icon: <Smartphone size={14} />,
-          items: [
-            { label: 'MacBook Pro 16"', desc: 'Desktop · Last active Mar 16, 2026', control: <span style={{ fontSize: '10px', color: '#10B981', fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.1em' }}>ACTIVE</span> },
-            { label: 'Pixel 7 Pro', desc: 'Mobile · Last active Mar 17, 2026', control: <span style={{ fontSize: '10px', color: '#F90000', fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.1em' }}>THIS DEVICE</span> },
-          ],
+          items: devices.map(device => {
+            const dateStr = new Date(device.lastActive).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            return {
+              label: device.deviceName,
+              desc: `${device.deviceType.charAt(0).toUpperCase() + device.deviceType.slice(1)} · Last active ${dateStr}`,
+              control: <span style={{ fontSize: '10px', color: '#10B981', fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.1em' }}>ACTIVE</span>
+            };
+          }),
         },
         {
           num: '05',

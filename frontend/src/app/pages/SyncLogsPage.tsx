@@ -4,7 +4,7 @@ import { SyncStatusBadge } from '../components/ui/SyncStatusBadge';
 import { useArca } from '../context/ArcaContext';
 import { apiClient } from '@/services/apiClient';
 import { ArcaButton } from '../components/ui/ArcaButton';
-import type { SyncLog } from '../data/mockData';
+import type { SyncLog } from '@/types';
 
 type FilterStatus = 'all' | 'synced' | 'conflict' | 'error';
 

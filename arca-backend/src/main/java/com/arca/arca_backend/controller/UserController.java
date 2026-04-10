@@ -1,20 +1,11 @@
 package com.arca.arca_backend.controller;
 
-import com.arca.arca_backend.dto.ApiResponse;
-import com.arca.arca_backend.dto.UpdateProfileRequest;
-import com.arca.arca_backend.dto.UserDTO;
 import com.arca.arca_backend.entity.User;
 import com.arca.arca_backend.service.UserService;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.Optional;
-import java.util.UUID;
-
-import java.util.Optional;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/user")
@@ -26,64 +17,50 @@ public class UserController {
         this.userService = userService;
     }
     
-    /**
-     * Get current user profile
-     * Protected by Spring Security
-     */
     @GetMapping("/profile")
-    public ResponseEntity<ApiResponse> getProfile() {
+    public ResponseEntity<?> getProfile(Authentication authentication) {
         try {
-            String userId = extractUserIdFromContext();
-            if (userId == null) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(new ApiResponse(false, "Unauthorized", null));
-            }
+            String supabaseUserId = authentication.getName();
+            User user = userService.getUserBySupabaseId(supabaseUserId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
             
-            Optional<User> userOpt = userService.getUserById(UUID.fromString(userId));
-            if (userOpt.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(new ApiResponse(false, "User not found", null));
-            }
-            
-            UserDTO userDTO = userService.toDTO(userOpt.get());
-            return ResponseEntity.ok(new ApiResponse(true, "Profile retrieved", userDTO));
+            return ResponseEntity.ok(Map.of(
+                "id", user.getId(),
+                "email", user.getEmail(),
+                "supabaseUserId", user.getSupabaseUserId(),
+                "username", user.getUsername() != null ? user.getUsername() : "",
+                "avatarUrl", user.getAvatarUrl() != null ? user.getAvatarUrl() : ""
+            ));
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse(false, e.getMessage(), null));
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
     
-    /**
-     * Update user profile (username, avatar)
-     * Protected by Spring Security
-     */
     @PutMapping("/profile")
-    public ResponseEntity<ApiResponse> updateProfile(@RequestBody UpdateProfileRequest request) {
+    public ResponseEntity<?> updateProfile(
+            @RequestBody Map<String, String> request,
+            Authentication authentication) {
         try {
-            String userId = extractUserIdFromContext();
-            if (userId == null) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(new ApiResponse(false, "Unauthorized", null));
+            String supabaseUserId = authentication.getName();
+            User user = userService.getUserBySupabaseId(supabaseUserId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+            
+            if (request.containsKey("username")) {
+                user.setUsername(request.get("username"));
+            }
+            if (request.containsKey("avatarUrl")) {
+                user.setAvatarUrl(request.get("avatarUrl"));
+            }
+            // If the avatarUrl key is present but null/empty, we handle it as setting it to null
+            if (request.containsKey("avatarUrl") && request.get("avatarUrl") == null) {
+                user.setAvatarUrl(null);
             }
             
-            User updatedUser = userService.updateProfile(userId, request.getUsername(), request.getAvatarUrl());
-            UserDTO userDTO = userService.toDTO(updatedUser);
+            userService.updateUser(user);
             
-            return ResponseEntity.ok(new ApiResponse(true, "Profile updated", userDTO));
+            return ResponseEntity.ok(Map.of("success", true));
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ApiResponse(false, e.getMessage(), null));
+            return ResponseEntity.badRequest().body(Map.of("success", false, "error", e.getMessage()));
         }
-    }
-    
-    /**
-     * Helper method to extract user ID from Security Context
-     */
-    private String extractUserIdFromContext() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication != null && authentication.isAuthenticated()) {
-            return authentication.getName();
-        }
-        return null;
     }
 }

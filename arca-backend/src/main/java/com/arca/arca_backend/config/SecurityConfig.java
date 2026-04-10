@@ -1,13 +1,18 @@
 package com.arca.arca_backend.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -18,13 +23,9 @@ import java.util.Arrays;
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
-    
-    /**
-     * Configure Spring Security to:
-     * 1. Use JWT validation against Supabase JWKS
-     * 2. Enable CORS for Vite dev server
-     * 3. Use stateless session (no cookies)
-     */
+
+    private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
@@ -32,69 +33,60 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authz -> authz
-                        // Public endpoints - no auth required
                         .requestMatchers(HttpMethod.POST, "/api/auth/register").permitAll()
-                        
-                        // All other endpoints require valid JWT
-                        .anyRequest().authenticated()
-                )
+                        .requestMatchers("/actuator/health").permitAll()
+                        .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.decoder(jwtDecoder()))
-                );
-        
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            log.error("JWT Authentication failed for {} {}: {}",
+                                    request.getMethod(), request.getRequestURI(), authException.getMessage());
+                            if (authException.getCause() != null) {
+                                log.error("Caused by: {}", authException.getCause().getMessage());
+                            }
+                            response.setStatus(401);
+                            response.setContentType("application/json");
+                            response.getWriter().write("{\"error\":\"" + authException.getMessage() + "\"}");
+                        }));
+
         return http.build();
     }
-    
-    /**
-     * JWT Decoder configured for Supabase JWKS endpoint
-     * Extracts the issuer URL from environment variable SUPABASE_PROJECT_URL
-     */
+
     @Bean
     public JwtDecoder jwtDecoder() {
-        // Get Supabase project URL from environment
         String supabaseProjectUrl = System.getenv("SUPABASE_PROJECT_URL");
         if (supabaseProjectUrl == null || supabaseProjectUrl.isEmpty()) {
-            // Fallback to property
             supabaseProjectUrl = "https://xupeembqwzmrpkoegnhr.supabase.co";
         }
-        
-        // Supabase JWKS endpoint
-        String jwksUri = supabaseProjectUrl + "/.well-known/jwks.json";
-        
-        return NimbusJwtDecoder.withJwkSetUri(jwksUri).build();
+
+        String jwksUri = supabaseProjectUrl + "/auth/v1/.well-known/jwks.json";
+        log.info("Configuring JWT decoder with JWKS URI: {}", jwksUri);
+
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwksUri)
+                .jwsAlgorithm(SignatureAlgorithm.ES256)
+                .build();
+
+        // Only validate expiration — skip issuer/audience validation since
+        // Supabase JWTs don't match Spring Security's defaults
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                new JwtTimestampValidator()));
+
+        return decoder;
     }
-    
-    /**
-     * CORS configuration allowing requests from Vite dev server
-     */
+
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        
-        // Allow requests from Vite dev server
-        configuration.setAllowedOrigins(Arrays.asList(
-                "http://localhost:5173",    // Vite default port
-                "http://localhost:3000",    // Fallback dev port
-                "http://127.0.0.1:5173"
-        ));
-        
-        // Allow common HTTP methods
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        
-        // Allow common headers
-        configuration.setAllowedHeaders(Arrays.asList("*"));
-        
-        // Allow credentials (cookies, authorization headers)
-        configuration.setAllowCredentials(true);
-        
-        // Cache CORS preflight for 1 hour
-        configuration.setMaxAge(3600L);
-        
-        // Expose Authorization header in response
-        configuration.setExposedHeaders(Arrays.asList("Authorization"));
-        
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(Arrays.asList(
+                "http://localhost:5173",
+                "http://localhost:5174",
+                "http://127.0.0.1:5173"));
+        config.setAllowedMethods(Arrays.asList("*"));
+        config.setAllowedHeaders(Arrays.asList("*"));
+        config.setAllowCredentials(true);
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
+        source.registerCorsConfiguration("/**", config);
         return source;
     }
 }

@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Dices, Check } from 'lucide-react';
 import { ArcaButton } from './ArcaButton';
 import { ArcaInput, ArcaTextarea } from './ArcaInput';
 import { PasswordStrengthMeter } from './PasswordStrengthMeter';
-import { Credential } from '../../data/mockData';
+import { Credential } from '@/types';
 
 interface AddEditPanelProps {
   isOpen: boolean;

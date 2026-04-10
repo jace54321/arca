@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Search, Plus, Lock } from 'lucide-react';
 import { Sidebar } from '../components/layout/Sidebar';
 import { CredentialCard } from '../components/ui/CredentialCard';
@@ -6,7 +6,7 @@ import { AddEditPanel } from '../components/ui/AddEditPanel';
 import { ArcaButton } from '../components/ui/ArcaButton';
 import { Outlet } from 'react-router';
 import { useArca } from '../context/ArcaContext';
-import { Credential } from '../data/mockData';
+import { Credential } from '@/types';
 
 export function VaultLayout() {
   const { isOnline } = useArca();
@@ -51,7 +51,7 @@ export function VaultLayout() {
 }
 
 export function VaultDashboardPage() {
-  const { credentials, addCredential, updateCredential, deleteCredential, isOnline, masterPassword } = useArca();
+  const { credentials, addCredential, updateCredential, deleteCredential, isOnline } = useArca();
   const [search, setSearch] = useState('');
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingCredential, setEditingCredential] = useState<Credential | null>(null);
@@ -78,12 +78,10 @@ export function VaultDashboardPage() {
 
   const handleSave = async (data: any) => {
     try {
-      if (!masterPassword) throw new Error('Master password required');
-      
       if (editingCredential) {
-        await updateCredential(editingCredential.id, data, masterPassword);
+        await updateCredential(editingCredential.id, data);
       } else {
-        await addCredential(data, masterPassword);
+        await addCredential(data);
       }
       setPanelOpen(false);
     } catch (error) {
@@ -115,7 +113,7 @@ export function VaultDashboardPage() {
         <div style={{ display: 'flex', gap: '0', marginTop: '16px' }}>
           {[
             { label: 'TOTAL ENTRIES', value: credentials.length.toString().padStart(2, '0') },
-            { label: 'PENDING SYNC', value: credentials.filter(c => c.syncStatus === 'pending').length.toString().padStart(2, '0'), red: true },
+            { label: 'PENDING SYNC', value: credentials.filter(c => c.syncStatus === 'syncing').length.toString().padStart(2, '0'), red: true },
             { label: 'OFFLINE MODIFIED', value: credentials.filter(c => c.offlineModified).length.toString().padStart(2, '0'), red: true },
           ].map((stat, i) => (
             <div
