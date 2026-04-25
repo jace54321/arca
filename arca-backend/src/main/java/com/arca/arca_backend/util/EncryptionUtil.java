@@ -2,70 +2,48 @@ package com.arca.arca_backend.util;
 
 import org.springframework.stereotype.Component;
 
-import javax.crypto.Cipher;
-import javax.crypto.KeyGenerator;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.SecretKeySpec;
-import java.util.Base64;
-
+/**
+ * @deprecated Server-side encryption has been removed as part of the zero-knowledge
+ * architecture migration. All encryption/decryption now happens client-side using
+ * AES-256-GCM with a key derived from the user's master password via PBKDF2.
+ * The server stores only ciphertext and never participates in decryption.
+ *
+ * This class is kept as a stub to avoid breaking any lingering references.
+ * It will be removed in a future cleanup.
+ */
+@Deprecated
 @Component
 public class EncryptionUtil {
-    
-    private static final String ALGORITHM = "AES";
-    private static final int KEY_SIZE = 256;
-    
-    /**
-     * Generate a random encryption key
-     */
-    public String generateEncryptionKey() throws Exception {
-        KeyGenerator keyGen = KeyGenerator.getInstance(ALGORITHM);
-        keyGen.init(KEY_SIZE);
-        SecretKey secretKey = keyGen.generateKey();
-        return Base64.getEncoder().encodeToString(secretKey.getEncoded());
+
+    @Deprecated
+    public String generateEncryptionKey() {
+        throw new UnsupportedOperationException(
+            "Server-side encryption is no longer supported. " +
+            "All encryption is now performed client-side."
+        );
     }
-    
-    /**
-     * Encrypt plaintext using AES-256
-     */
-    public String encrypt(String plaintext, String keyString) throws Exception {
-        byte[] decodedKey = Base64.getDecoder().decode(keyString);
-        SecretKey key = new SecretKeySpec(decodedKey, 0, decodedKey.length, ALGORITHM);
-        
-        Cipher cipher = Cipher.getInstance(ALGORITHM);
-        cipher.init(Cipher.ENCRYPT_MODE, key);
-        
-        byte[] encryptedBytes = cipher.doFinal(plaintext.getBytes());
-        return Base64.getEncoder().encodeToString(encryptedBytes);
+
+    @Deprecated
+    public String encrypt(String plaintext, String keyString) {
+        throw new UnsupportedOperationException(
+            "Server-side encryption is no longer supported. " +
+            "All encryption is now performed client-side."
+        );
     }
-    
-    /**
-     * Decrypt ciphertext using AES-256
-     */
-    public String decrypt(String ciphertext, String keyString) throws Exception {
-        byte[] decodedKey = Base64.getDecoder().decode(keyString);
-        SecretKey key = new SecretKeySpec(decodedKey, 0, decodedKey.length, ALGORITHM);
-        
-        Cipher cipher = Cipher.getInstance(ALGORITHM);
-        cipher.init(Cipher.DECRYPT_MODE, key);
-        
-        byte[] decodedCiphertext = Base64.getDecoder().decode(ciphertext);
-        byte[] decryptedBytes = cipher.doFinal(decodedCiphertext);
-        return new String(decryptedBytes);
+
+    @Deprecated
+    public String decrypt(String ciphertext, String keyString) {
+        throw new UnsupportedOperationException(
+            "Server-side decryption is no longer supported. " +
+            "All decryption is now performed client-side."
+        );
     }
-    
-    /**
-     * Derive encryption key from master password and salt
-     */
-    public String deriveKeyFromPassword(String masterPassword, String salt) throws Exception {
-        // Simple key derivation: hash the combination
-        String combined = masterPassword + salt;
-        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
-        byte[] hash = md.digest(combined.getBytes());
-        
-        // Truncate or pad to 32 bytes for AES-256
-        byte[] keyBytes = new byte[32];
-        System.arraycopy(hash, 0, keyBytes, 0, Math.min(hash.length, 32));
-        
-        return Base64.getEncoder().encodeToString(keyBytes);
+
+    @Deprecated
+    public String deriveKeyFromPassword(String masterPassword, String salt) {
+        throw new UnsupportedOperationException(
+            "Server-side key derivation is no longer supported. " +
+            "Key derivation (PBKDF2) is performed client-side only."
+        );
     }
 }

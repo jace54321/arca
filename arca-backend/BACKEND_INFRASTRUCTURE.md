@@ -1,103 +1,98 @@
-# Arca Password Manager - Backend Infrastructure
+# Arca Password Manager - Backend (Simplified)
 
 ## Overview
-Generated complete backend infrastructure to support your React/Vite password manager frontend. The backend uses Java 17, Spring Boot 3.4.x, Spring Data JPA, Spring Security with JWT, and PostgreSQL (Supabase).
+Clean, minimal Spring Boot backend for Arca password manager. Uses Supabase PostgreSQL, JWT auth via Supabase, and minimal business logic.
+
+**Tech Stack:**
+- Java 21 + Spring Boot 4.0.5
+- Spring Data JPA + PostgreSQL
+- Spring Security (Supabase JWT validation)
+- CORS enabled for dev
 
 ---
 
-## Architecture Decisions
-
-✅ **Authentication**: JWT validation via Supabase JWKS (stateless, no sessions)  
-✅ **Master Password**: Bcrypt-hashed, stored separately from login credentials  
-✅ **Credential Storage**: AES-256 encryption at rest (client-side key derivation)  
-✅ **Sync Strategy**: Last-write-wins (timestamp-based conflict resolution)  
-✅ **Vault Versioning**: Per-user version tracking for sync conflicts  
-✅ **CORS**: Enabled for `localhost:5173` (Vite dev server)  
-✅ **User ID Context**: Extracted from JWT, NOT trusted from request body  
-
----
-
-## File Structure
+## Architecture
 
 ```
 src/main/java/com/arca/arca_backend/
-├── entity/                     # JPA Entities (database models)
-│   ├── User.java              # User account + master password hash
-│   ├── Credential.java        # Encrypted password entries
-│   └── SyncLog.java           # Synchronization event history
-│
-├── dto/                        # Data Transfer Objects (API contracts)
-│   ├── LoginRequest.java      # POST /api/auth/login
-│   ├── LoginResponse.java     # Login response with JWT
-│   ├── UnlockVaultRequest.java # POST /api/vault/unlock
-│   ├── CredentialDTO.java     # Credential with decrypted password
-│   ├── SyncLogDTO.java        # Sync history DTO
-│   ├── UpdateProfileRequest.java # PUT /api/user/profile
-│   ├── UserDTO.java           # User profile DTO
-│   └── ApiResponse.java       # Generic API response wrapper
-│
-├── repository/                 # Spring Data JPA Repositories
-│   ├── UserRepository.java    # Database access: User
-│   ├── CredentialRepository.java # Database access: Credential
-│   └── SyncLogRepository.java # Database access: SyncLog
-│
-├── service/                    # Business Logic Layer
-│   ├── UserService.java       # User registration, auth, encryption key derivation
-│   ├── VaultService.java      # Credential CRUD, encryption/decryption
-│   └── SyncService.java       # Sync events, conflict tracking
-│
-├── controller/                 # REST API Endpoints
-│   ├── AuthController.java    # /api/auth/register, /api/auth/login
-│   ├── VaultController.java   # /api/vault/* (CRUD credentials)
-│   ├── SyncController.java    # /api/sync/* (sync logs, trigger)
-│   └── UserController.java    # /api/user/profile (GET, PUT)
-│
-├── util/                       # Utility Classes
-│   └── EncryptionUtil.java    # AES-256 encryption/decryption
-│
-└── config/                     # Spring Configuration
-    ├── SecurityConfig.java    # JWT validation, CORS, OAuth2
-    └── PasswordEncoderConfig.java # BCrypt password encoding
+├── entity/
+│   ├── User.java           # User linked to Supabase auth
+│   └── Credential.java     # Encrypted passwords
+├── repository/
+│   ├── UserRepository.java
+│   └── CredentialRepository.java
+├── service/
+│   ├── UserService.java    # User CRUD
+│   └── VaultService.java   # Credential CRUD
+├── controller/
+│   ├── AuthController.java  # POST /register, GET /me
+│   └── VaultController.java # GET/POST/PUT/DELETE /credentials
+├── config/
+│   ├── SecurityConfig.java  # JWT + CORS
+│   └── PasswordEncoderConfig.java
+└── ArcaBackendApplication.java
 ```
+
+---
+
+## API Endpoints
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| POST | `/api/auth/register` | ✗ | Register new user (supabaseUserId, email) |
+| GET | `/api/auth/me` | ✓ | Get current user profile |
+| GET | `/api/vault/credentials` | ✓ | List user's credentials |
+| POST | `/api/vault/credentials` | ✓ | Create credential (send encrypted) |
+| PUT | `/api/vault/credentials/{id}` | ✓ | Update credential |
+| DELETE | `/api/vault/credentials/{id}` | ✓ | Delete credential |
 
 ---
 
 ## Database Schema
 
-### users table
-```sql
-id (UUID, PK)
-email (VARCHAR, UNIQUE NOT NULL)
-master_password_hash (VARCHAR NOT NULL)  -- Bcrypt hash
-encryption_salt (VARCHAR NOT NULL)       -- For key derivation
-username (VARCHAR)                       -- Display name
-avatar_url (TEXT)                        -- Profile picture
-vault_version (INT, DEFAULT 1)           -- For sync conflict resolution
-created_at (TIMESTAMP)
-updated_at (TIMESTAMP)
+**users:**
+- `id` (UUID, PK)
+- `supabase_user_id` (VARCHAR, UNIQUE) - Links to Supabase auth
+- `email` (VARCHAR, UNIQUE)
+- `created_at`, `updated_at` (TIMESTAMP)
+
+**credentials:**
+- `id` (UUID, PK)
+- `user_id` (UUID, FK → users)
+- `site_name`, `url`, `username` (TEXT)
+- `encrypted_password` (TEXT) - Client-side encrypted
+- `category`, `notes` (TEXT)
+- `sync_status`, `version_number` (INT)
+- `created_at`, `last_modified` (TIMESTAMP)
+
+---
+
+## Environment Variables
+
+```
+SUPABASE_DB_URL=jdbc:postgresql://...?user=...&password=...
+SUPABASE_PROJECT_URL=https://<project>.supabase.co
 ```
 
-### credentials table
-```sql
-id (UUID, PK)
-user_id (UUID, FK → users)
-site_name (VARCHAR NOT NULL)             -- e.g., "GitHub"
-url (VARCHAR)
-username (VARCHAR NOT NULL)              -- Email or login
-encrypted_password (TEXT NOT NULL)       -- AES-256 encrypted
-category (VARCHAR NOT NULL)              -- 'Work'|'Personal'|'Social'|'Other'
-notes (TEXT)
-sync_status (VARCHAR)                    -- 'synced'|'pending'|'syncing'|'error'
-offline_modified (BOOLEAN)
-version_number (INT)                     -- For conflict resolution
-created_at (TIMESTAMP)
-last_modified (TIMESTAMP)
+---
+
+## How It Works
+
+1. **Auth:** Users sign up via Supabase (frontend). JWT token sent with requests.
+2. **User Record:** Backend creates DB record on first login (POST `/api/auth/register`)
+3. **Credentials:** All stored encrypted. Client handles encryption/decryption.
+4. **No Master Password:** Removed from backend. Client-side only.
+5. **Sync:** Basic status tracking. Client manages actual sync logic.
+
+---
+
+## Running Locally
+
+```bash
+./mvnw spring-boot:run
 ```
 
-### sync_logs table
-```sql
-id (UUID, PK)
-user_id (UUID, FK → users)
+Server runs on `http://localhost:8080`
 device (VARCHAR NOT NULL)                -- Device name
 device_type (VARCHAR NOT NULL)           -- 'mobile'|'desktop'
 timestamp (TIMESTAMP)

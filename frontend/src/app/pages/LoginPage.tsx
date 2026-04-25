@@ -7,6 +7,7 @@ import { useArca } from '../context/ArcaContext';
 import { useNavigate } from 'react-router';
 import { apiClient } from '@/services/apiClient';
 import { supabase } from '@/lib/supabaseClient';
+import { deriveKeys } from '@/lib/crypto';
 
 type Tab = 'login' | 'register';
 
@@ -26,18 +27,18 @@ export function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) { 
-      setError('Please fill in all fields.'); 
-      triggerShake(); 
-      return; 
+    if (!email || !password) {
+      setError('Please fill in all fields.');
+      triggerShake();
+      return;
     }
-    
+
     setLoading(true);
     setError('');
-    
+
     try {
-      // Login with Supabase + master password for vault
-      const ok = await login(email, password, password);
+      // login() derives keys internally then verifies with backend
+      const ok = await login(email, password);
       if (ok) {
         setActiveScreen('unlock');
         navigate('/unlock');
@@ -55,39 +56,60 @@ export function LoginPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!email || !password || !confirmPassword) { 
-      setError('Please fill in all fields.'); 
-      return; 
+
+    if (!email || !password || !confirmPassword) {
+      setError('Please fill in all fields.');
+      return;
     }
-    if (password !== confirmPassword) { 
-      setError('Passwords do not match.'); 
-      return; 
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
     }
-    if (!agreed) { 
-      setError('You must acknowledge the master password warning.'); 
-      return; 
+    if (!agreed) {
+      setError('You must acknowledge the master password warning.');
+      return;
     }
-    
+
     setLoading(true);
     setError('');
-    
+
     try {
-      // First, sign up with Supabase to get the user ID
+      // 1. Derive auth key from master password BEFORE hitting any server
+      const { authKeyHex } = await deriveKeys(password, email);
+
+      // 2. Create Supabase account (Supabase manages its own auth independently)
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
-        password: password, // Use master password as Supabase password too
+        password,
       });
-      
-      if (authError) throw authError;
-      if (!authData.user?.id) throw new Error('Failed to get Supabase user ID');
-      
-      // Then register user with backend (email + master password + Supabase user ID)
-      const registerResponse = await apiClient.register(email, password, authData.user.id);
+
+      if (authError) {
+        if (
+          authError.message.toLowerCase().includes('already registered') ||
+          authError.message.toLowerCase().includes('already been registered')
+        ) {
+          setError('This email is already registered. Please log in instead.');
+          setTimeout(() => { setTab('login'); setError(''); }, 2000);
+          return;
+        }
+        throw authError;
+      }
+
+      if (!authData.user?.id) {
+        setError('Account created! Check your email to confirm your address, then log in.');
+        setTab('login');
+        setPassword('');
+        setConfirmPassword('');
+        return;
+      }
+
+      // 3. Register on our backend — send authKeyHex, never the raw password
+      const registerResponse = await apiClient.register(email, authKeyHex, authData.user.id);
+
       if (!registerResponse.success) {
         throw new Error(registerResponse.message || 'Registration failed');
       }
-      
+
       setError('Account created! You can now log in.');
       setTab('login');
       setPassword('');
@@ -206,16 +228,21 @@ export function LoginPage() {
                 value={email}
                 onChange={e => setEmail(e.target.value)}
               />
-              <ArcaInput
-                label="Master Password"
-                isPassword
-                large
-                placeholder="Enter your master password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                onFocus={() => setMasterFocused(true)}
-                onBlur={() => setMasterFocused(false)}
-              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <ArcaInput
+                  label="Master Password"
+                  isPassword
+                  large
+                  placeholder="Enter your master password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  onFocus={() => setMasterFocused(true)}
+                  onBlur={() => setMasterFocused(false)}
+                />
+                <p style={{ fontSize: '12px', color: '#64748B', margin: 0, fontFamily: "'Ubuntu', sans-serif", lineHeight: 1.5 }}>
+                  This is the password you set when creating your account. It also encrypts your vault.
+                </p>
+              </div>
               {error && <p style={{ fontSize: '13px', color: '#EF4444', margin: 0, fontFamily: "'Ubuntu', sans-serif" }}>{error}</p>}
               <ArcaButton type="submit" variant="primary" fullWidth loading={loading} size="md">
                 Log In
@@ -233,7 +260,7 @@ export function LoginPage() {
                 value={email}
                 onChange={e => setEmail(e.target.value)}
               />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <ArcaInput
                   label="Master Password"
                   isPassword
@@ -244,6 +271,9 @@ export function LoginPage() {
                   onFocus={() => setMasterFocused(true)}
                   onBlur={() => setMasterFocused(false)}
                 />
+                <p style={{ fontSize: '12px', color: '#64748B', margin: 0, fontFamily: "'Ubuntu', sans-serif", lineHeight: 1.5 }}>
+                  This password is used to log in <em>and</em> to encrypt your vault. It is never stored or sent to our servers.
+                </p>
                 <PasswordStrengthMeter password={password} />
               </div>
               <ArcaInput
@@ -261,7 +291,7 @@ export function LoginPage() {
                   onChange={e => setAgreed(e.target.checked)}
                   style={{ marginTop: '2px', accentColor: '#F90000', flexShrink: 0 }}
                 />
-                <span>I understand my Master Password cannot be recovered. I will keep it safe.</span>
+                <span>I understand my Master Password is also my login — it <strong style={{ color: '#F1F5F9' }}>cannot be recovered</strong> if lost.</span>
               </label>
               {error && <p style={{ fontSize: '13px', color: '#EF4444', margin: 0, fontFamily: "'Ubuntu', sans-serif" }}>{error}</p>}
               <ArcaButton type="submit" variant="primary" fullWidth loading={loading} disabled={!agreed} size="md">

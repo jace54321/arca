@@ -34,7 +34,13 @@ public class Credential {
     private String username;  // Email or username
     
     @Column(nullable = false, columnDefinition = "TEXT")
-    private String encryptedPassword;  // AES-256 encrypted
+    private String encryptedPassword;  // AES-256-GCM ciphertext (base64), encrypted client-side
+    
+    @Column(columnDefinition = "TEXT")
+    private String iv;  // AES-GCM IV (base64), stored alongside ciphertext
+    
+    @Column(nullable = false)
+    private Integer cryptoVersion = 0;  // 0 = legacy plaintext, 1 = client-side AES-256-GCM
     
     @Column(nullable = false)
     private String category;  // 'Work' | 'Personal' | 'Social' | 'Other'

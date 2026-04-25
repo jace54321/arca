@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Copy, Eye, EyeOff, MoreVertical, Pencil, Trash2, Check } from 'lucide-react';
 import { SyncStatusBadge } from './SyncStatusBadge';
-import { Credential } from '../../data/mockData';
+import { Credential } from '@/types';
 
 interface CredentialCardProps {
   credential: Credential;

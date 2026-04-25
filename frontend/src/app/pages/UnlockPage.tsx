@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { Lock, Unlock } from 'lucide-react';
 import { ArcaButton } from '../components/ui/ArcaButton';
 import { ArcaInput } from '../components/ui/ArcaInput';
@@ -89,7 +89,7 @@ export function UnlockPage() {
             Unlock Your Vault
           </h1>
           <p style={{ fontFamily: "'Ubuntu', sans-serif", fontSize: '14px', color: '#94A3B8', margin: 0, maxWidth: '360px', lineHeight: 1.6 }}>
-            Enter your Master Password to decrypt your credentials on this device.
+            Enter the password you used when creating your account. This decrypts your vault locally.
           </p>
         </div>
 
