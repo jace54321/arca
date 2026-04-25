@@ -449,10 +449,10 @@ class VaultRepository @Inject constructor(
 
                     "update" -> {
                         val entity = credentialDao.getCredentialById(action.credentialId)
-                            ?: run {
-                                credentialDao.deletePendingAction(action.id)
-                                continue
-                            }
+                        if (entity == null) {
+                            credentialDao.deletePendingAction(action.id)
+                            continue
+                        }
 
                         val dto = CredentialDTO(
                             siteName = entity.siteName,

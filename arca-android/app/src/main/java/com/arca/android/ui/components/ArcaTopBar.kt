@@ -1,6 +1,7 @@
 package com.arca.android.ui.components
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
@@ -57,7 +58,7 @@ fun ArcaTopBar(
                 DropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false },
-                    containerColor = ArcaColors.SurfaceRaised,
+                    modifier = Modifier.background(ArcaColors.SurfaceRaised),
                 ) {
                     DropdownMenuItem(
                         text = {

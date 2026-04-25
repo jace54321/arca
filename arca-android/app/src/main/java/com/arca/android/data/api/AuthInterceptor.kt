@@ -1,6 +1,7 @@
 package com.arca.android.data.api
 
 import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.SupabaseClient
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
