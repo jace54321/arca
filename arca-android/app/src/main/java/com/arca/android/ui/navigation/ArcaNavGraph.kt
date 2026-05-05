@@ -1,6 +1,16 @@
 package com.arca.android.ui.navigation
 
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -30,10 +40,6 @@ object Routes {
 /**
  * Main navigation graph.
  * Handles the flow: Login → Unlock → Vault (with Sync Logs & Settings as sub-routes).
- *
- * State management:
- * - DerivedKeys are passed in memory (not serialized) between Login → Unlock → Vault.
- * - The vault key only exists in memory — it's never saved to disk.
  */
 @Composable
 fun ArcaNavGraph() {
@@ -45,90 +51,115 @@ fun ArcaNavGraph() {
     var vaultCredentials by remember { mutableStateOf<List<Credential>>(emptyList()) }
     var vaultKey by remember { mutableStateOf<javax.crypto.SecretKey?>(null) }
 
-    NavHost(
-        navController = navController,
-        startDestination = Routes.LOGIN,
-    ) {
-        // ── Login ──
-        composable(Routes.LOGIN) {
-            val loginViewModel: LoginViewModel = hiltViewModel()
+    Column(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.weight(1f)) {
+            NavHost(
+                navController = navController,
+                startDestination = Routes.LOGIN,
+            ) {
+                // ── Login ──
+                composable(Routes.LOGIN) {
+                    val loginViewModel: LoginViewModel = hiltViewModel()
 
-            LoginScreen(
-                viewModel = loginViewModel,
-                onLoginSuccess = {
-                    derivedKeys = loginViewModel.derivedKeys
-                    userEmail = loginViewModel.uiState.value.email
-                    navController.navigate(Routes.UNLOCK) {
-                        popUpTo(Routes.LOGIN) { inclusive = true }
+                    LoginScreen(
+                        viewModel = loginViewModel,
+                        onLoginSuccess = {
+                            derivedKeys = loginViewModel.derivedKeys
+                            userEmail = loginViewModel.uiState.value.email
+                            navController.navigate(Routes.UNLOCK) {
+                                popUpTo(Routes.LOGIN) { inclusive = true }
+                            }
+                        },
+                    )
+                }
+
+                // ── Unlock ──
+                composable(Routes.UNLOCK) {
+                    val unlockViewModel: UnlockViewModel = hiltViewModel()
+
+                    UnlockScreen(
+                        email = userEmail,
+                        derivedKeys = derivedKeys,
+                        viewModel = unlockViewModel,
+                        onUnlockSuccess = {
+                            vaultCredentials = unlockViewModel.credentials
+                            vaultKey = unlockViewModel.vaultKey
+                            derivedKeys = null // Clear keys after use
+                            navController.navigate(Routes.VAULT) {
+                                popUpTo(Routes.UNLOCK) { inclusive = true }
+                            }
+                        },
+                    )
+                }
+
+                // ── Vault ──
+                composable(Routes.VAULT) {
+                    val vaultViewModel: VaultViewModel = hiltViewModel()
+
+                    // Initialize with credentials from unlock
+                    LaunchedEffect(Unit) {
+                        vaultViewModel.vaultKey = vaultKey
+                        vaultViewModel.setInitialCredentials(vaultCredentials)
                     }
-                },
-            )
-        }
 
-        // ── Unlock ──
-        composable(Routes.UNLOCK) {
-            val unlockViewModel: UnlockViewModel = hiltViewModel()
+                    VaultScreen(
+                        viewModel = vaultViewModel,
+                        onSyncLogsClick = { navController.navigate(Routes.SYNC_LOGS) },
+                        onSettingsClick = { navController.navigate(Routes.SETTINGS) },
+                        onLogout = {
+                            vaultKey = null
+                            vaultCredentials = emptyList()
+                            derivedKeys = null
+                            navController.navigate(Routes.LOGIN) {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        },
+                    )
+                }
 
-            UnlockScreen(
-                email = userEmail,
-                derivedKeys = derivedKeys,
-                viewModel = unlockViewModel,
-                onUnlockSuccess = {
-                    vaultCredentials = unlockViewModel.credentials
-                    vaultKey = unlockViewModel.vaultKey
-                    derivedKeys = null // Clear keys after use
-                    navController.navigate(Routes.VAULT) {
-                        popUpTo(Routes.UNLOCK) { inclusive = true }
-                    }
-                },
-            )
-        }
+                // ── Sync Logs ──
+                composable(Routes.SYNC_LOGS) {
+                    SyncLogsScreen(
+                        onBack = { navController.popBackStack() },
+                    )
+                }
 
-        // ── Vault ──
-        composable(Routes.VAULT) {
-            val vaultViewModel: VaultViewModel = hiltViewModel()
-
-            // Initialize with credentials from unlock
-            LaunchedEffect(Unit) {
-                vaultViewModel.vaultKey = vaultKey
-                vaultViewModel.setInitialCredentials(vaultCredentials)
+                // ── Settings ──
+                composable(Routes.SETTINGS) {
+                    SettingsScreen(
+                        onBack = { navController.popBackStack() },
+                        onLogout = {
+                            vaultKey = null
+                            vaultCredentials = emptyList()
+                            derivedKeys = null
+                            navController.navigate(Routes.LOGIN) {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        },
+                    )
+                }
             }
-
-            VaultScreen(
-                viewModel = vaultViewModel,
-                onSyncLogsClick = { navController.navigate(Routes.SYNC_LOGS) },
-                onSettingsClick = { navController.navigate(Routes.SETTINGS) },
-                onLogout = {
-                    vaultKey = null
-                    vaultCredentials = emptyList()
-                    derivedKeys = null
-                    navController.navigate(Routes.LOGIN) {
-                        popUpTo(0) { inclusive = true }
-                    }
-                },
-            )
         }
 
-        // ── Sync Logs ──
-        composable(Routes.SYNC_LOGS) {
-            SyncLogsScreen(
-                onBack = { navController.popBackStack() },
-            )
-        }
-
-        // ── Settings ──
-        composable(Routes.SETTINGS) {
-            SettingsScreen(
-                onBack = { navController.popBackStack() },
-                onLogout = {
-                    vaultKey = null
-                    vaultCredentials = emptyList()
-                    derivedKeys = null
-                    navController.navigate(Routes.LOGIN) {
-                        popUpTo(0) { inclusive = true }
+        // Developer Navigation Overlay
+        if (com.arca.android.BuildConfig.DEBUG) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Red.copy(alpha = 0.2f))
+                    .horizontalScroll(rememberScrollState())
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                listOf(Routes.LOGIN, Routes.UNLOCK, Routes.VAULT, Routes.SYNC_LOGS, Routes.SETTINGS).forEach { route ->
+                    Button(
+                        onClick = { navController.navigate(route) },
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        Text(route, fontSize = 10.sp)
                     }
-                },
-            )
+                }
+            }
         }
     }
 }
