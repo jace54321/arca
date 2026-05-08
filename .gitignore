@@ -35,3 +35,5 @@ yarn-error.log*
 # Dependencies
 .pnp
 .pnp.js
+.vercel
+.env*.local
