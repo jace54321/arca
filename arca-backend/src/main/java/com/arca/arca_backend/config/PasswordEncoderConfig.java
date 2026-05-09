@@ -13,6 +13,6 @@ public class PasswordEncoderConfig {
      */
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder(12);  // Strength 12 for high security
+        return new BCryptPasswordEncoder(10);  // Strength 10 for performance on free tiers
     }
 }
