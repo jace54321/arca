@@ -9,5 +9,4 @@ public class ArcaBackendApplication {
 	public static void main(String[] args) {
 		SpringApplication.run(ArcaBackendApplication.class, args);
 	}
-
 }

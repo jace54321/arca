@@ -35,7 +35,7 @@ public class User {
      * The server NEVER sees the raw master password or the vault key.
      * Nullable for existing users — set on first login after this migration.
      */
-    @Column
+    @Column(name = "master_password_hash")
     private String authKeyHash;
     
     @Column

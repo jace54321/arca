@@ -11,6 +11,11 @@ export function Sidebar() {
 
   const isActive = (path: string) => location.pathname === path;
 
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
+
   const navItems = [
     { icon: <LayoutGrid size={16} />, label: 'ALL ENTRIES', path: '/vault', count: credentials.length },
     { icon: <Folder size={14} />, label: 'WORK', path: '/vault/category/work', sub: true, count: credentials.filter(c => c.category === 'Work').length },
@@ -169,17 +174,17 @@ export function Sidebar() {
           </div>
         </div>
         <button
-          onClick={logout}
+          onClick={handleLogout}
           style={{
             display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none',
-            cursor: 'pointer', color: '#2A3040',
-            fontFamily: "'JetBrains Mono', monospace", fontSize: '9px',
-            letterSpacing: '0.12em', padding: 0, transition: 'color 200ms ease',
+            cursor: 'pointer', color: '#94A3B8',
+            fontFamily: "'JetBrains Mono', monospace", fontSize: '10px',
+            letterSpacing: '0.12em', padding: '4px', transition: 'color 200ms ease',
           }}
           onMouseEnter={e => (e.currentTarget.style.color = '#F90000')}
-          onMouseLeave={e => (e.currentTarget.style.color = '#2A3040')}
+          onMouseLeave={e => (e.currentTarget.style.color = '#94A3B8')}
         >
-          <LogOut size={12} /> LOG OUT
+          <LogOut size={13} /> LOG OUT
         </button>
       </div>
     </aside>

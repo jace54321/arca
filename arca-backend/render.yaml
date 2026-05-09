@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: arca-backend
+    env: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: SUPABASE_DB_URL
+        sync: false
+      - key: SUPABASE_PROJECT_URL
+        sync: false
+      - key: CORS_ALLOWED_ORIGIN
+        sync: false

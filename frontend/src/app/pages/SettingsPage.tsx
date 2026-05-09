@@ -1,22 +1,41 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Shield, Smartphone, WifiOff, RefreshCw, Key, Trash2, User, Camera, Check, AlertCircle } from 'lucide-react';
 import { ArcaButton } from '../components/ui/ArcaButton';
 import { useArca } from '../context/ArcaContext';
 import { apiClient } from '@/services/apiClient';
+import { supabase } from '@/lib/supabaseClient';
+import { toast } from 'sonner';
 
 export function SettingsPage() {
-  const { isOnline, setIsOnline, triggerSync, username, avatarUrl, updateProfile, userEmail, devices } = useArca();
+  const { isOnline, setIsOnline, triggerSync, username, avatarUrl, updateProfile, userEmail, devices, autoLockTimeout, setAutoLockTimeout } = useArca();
   const [autoSync, setAutoSync] = useState(true);
   const [clearConfirm, setClearConfirm] = useState(false);
+
+  // Hint State
+  const [hintEditing, setHintEditing] = useState(false);
+  const [hintValue, setHintValue] = useState(() => localStorage.getItem('ARCA_PASSWORD_HINT') || '');
+  const [hintInput, setHintInput] = useState(hintValue);
 
   // Profile state
   const [editUsername, setEditUsername] = useState(username);
   const [editAvatarUrl, setEditAvatarUrl] = useState<string | null>(avatarUrl);
-  const [profileSaved, setProfileSaved] = useState(false);
-  const [profileError, setProfileError] = useState<string | null>(null);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [avatarHovered, setAvatarHovered] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Email state
+  const [editEmail, setEditEmail] = useState(userEmail);
+  const [isSavingEmail, setIsSavingEmail] = useState(false);
+
+  useEffect(() => {
+    apiClient.getProfile().then(profile => {
+      if (profile) {
+        setEditUsername(profile.username || '');
+        setEditAvatarUrl(profile.avatarUrl || null);
+      }
+    }).catch(console.error);
+    setEditEmail(userEmail);
+  }, [userEmail]);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -33,25 +52,59 @@ export function SettingsPage() {
     
     try {
       setIsSavingProfile(true);
-      setProfileError(null);
-      setProfileSaved(false);
       
-      const response = await apiClient.updateProfile(trimmedUsername, editAvatarUrl || undefined);
+      let finalAvatarUrl = editAvatarUrl;
+      
+      if (editAvatarUrl && editAvatarUrl.startsWith('data:image')) {
+        const file = fileInputRef.current?.files?.[0];
+        if (file) {
+          const fileExt = file.name.split('.').pop();
+          const fileName = `${userEmail.replace(/[^a-zA-Z0-9]/g, '_')}-${Date.now()}.${fileExt}`;
+          
+          const { error: uploadError } = await supabase.storage
+            .from('avatars')
+            .upload(fileName, file, { upsert: true });
+            
+          if (uploadError) throw uploadError;
+          
+          const { data: publicUrlData } = supabase.storage
+            .from('avatars')
+            .getPublicUrl(fileName);
+            
+          finalAvatarUrl = publicUrlData.publicUrl;
+        }
+      }
+
+      const response = await apiClient.updateProfile(trimmedUsername, finalAvatarUrl || undefined);
       
       if (response.success) {
-        updateProfile(trimmedUsername, editAvatarUrl);
-        setProfileSaved(true);
-        setTimeout(() => setProfileSaved(false), 2000);
+        updateProfile(trimmedUsername, finalAvatarUrl);
+        setEditAvatarUrl(finalAvatarUrl);
+        toast.success('Profile updated successfully');
       } else {
-        setProfileError(response.message || 'Failed to update profile');
-        setTimeout(() => setProfileError(null), 3000);
+        throw new Error(response.message || 'Failed to update profile');
       }
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Failed to update profile';
-      setProfileError(errorMsg);
-      setTimeout(() => setProfileError(null), 3000);
+      toast.error(error instanceof Error ? error.message : 'Failed to update profile');
     } finally {
       setIsSavingProfile(false);
+    }
+  };
+
+  const handleEmailSave = async () => {
+    const trimmedEmail = editEmail.trim();
+    if (!trimmedEmail || trimmedEmail === userEmail) return;
+
+    try {
+      setIsSavingEmail(true);
+      const { error } = await supabase.auth.updateUser({ email: trimmedEmail });
+      if (error) throw error;
+      
+      toast.success('Confirmation sent! Please check both your old and new email inboxes to confirm the change.', { duration: 6000 });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to update email');
+    } finally {
+      setIsSavingEmail(false);
     }
   };
 
@@ -170,33 +223,40 @@ export function SettingsPage() {
                 <label style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '9px', fontWeight: 500, color: '#2A3040', display: 'block', marginBottom: '6px', letterSpacing: '0.18em' }}>
                   EMAIL ADDRESS
                 </label>
-                <input
-                  value={userEmail}
-                  readOnly
-                  style={{
-                    width: '100%', boxSizing: 'border-box',
-                    backgroundColor: '#07080A', border: '1px solid rgba(54,60,69,0.25)', borderRadius: '3px',
-                    color: '#2A3040', padding: '9px 12px',
-                    fontFamily: "'JetBrains Mono', monospace", fontSize: '11px', outline: 'none',
-                    cursor: 'default', letterSpacing: '0.04em',
-                  }}
-                />
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    value={editEmail}
+                    onChange={e => setEditEmail(e.target.value)}
+                    style={{
+                      flex: 1, boxSizing: 'border-box',
+                      backgroundColor: '#0A0C0F', border: '1px solid rgba(54,60,69,0.5)', borderRadius: '3px',
+                      color: '#F1F5F9', padding: '9px 12px',
+                      fontFamily: "'JetBrains Mono', monospace", fontSize: '11px', outline: 'none',
+                      transition: 'border-color 200ms ease, box-shadow 200ms ease',
+                    }}
+                    onFocus={e => { e.target.style.borderColor = '#F90000'; e.target.style.boxShadow = '0 0 0 2px rgba(249,0,0,0.12)'; }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(54,60,69,0.5)'; e.target.style.boxShadow = 'none'; }}
+                  />
+                  {editEmail !== userEmail && (
+                    <ArcaButton
+                      variant="primary"
+                      size="sm"
+                      onClick={handleEmailSave}
+                      disabled={isSavingEmail}
+                    >
+                      {isSavingEmail ? 'SENDING...' : 'UPDATE EMAIL'}
+                    </ArcaButton>
+                  )}
+                </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', alignItems: 'center' }}>
-                {profileError && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#F90000', fontFamily: "'JetBrains Mono', monospace", fontSize: '11px' }}>
-                    <AlertCircle size={14} />
-                    <span>{profileError}</span>
-                  </div>
-                )}
                 <ArcaButton
-                  variant={profileSaved ? 'secondary' : 'primary'}
+                  variant="primary"
                   size="sm"
                   onClick={handleProfileSave}
-                  disabled={isSavingProfile || profileSaved}
-                  leftIcon={profileSaved ? <Check size={13} /> : undefined}
+                  disabled={isSavingProfile}
                 >
-                  {isSavingProfile ? 'SAVING...' : profileSaved ? 'SAVED' : 'SAVE CHANGES'}
+                  {isSavingProfile ? 'SAVING...' : 'SAVE CHANGES'}
                 </ArcaButton>
               </div>
             </div>
@@ -215,19 +275,58 @@ export function SettingsPage() {
               label: 'Auto-lock Timeout',
               desc: 'Lock vault after period of inactivity',
               control: (
-                <select style={{ backgroundColor: '#0D1014', border: '1px solid rgba(54,60,69,0.5)', borderRadius: '3px', color: '#F1F5F9', padding: '6px 10px', fontFamily: "'JetBrains Mono', monospace", fontSize: '11px', letterSpacing: '0.06em', outline: 'none', cursor: 'pointer' }}>
-                  <option>5 MIN</option>
-                  <option>15 MIN</option>
-                  <option>30 MIN</option>
-                  <option>1 HOUR</option>
-                  <option>NEVER</option>
+                <select 
+                  value={autoLockTimeout}
+                  onChange={e => setAutoLockTimeout(e.target.value)}
+                  style={{ backgroundColor: '#0D1014', border: '1px solid rgba(54,60,69,0.5)', borderRadius: '3px', color: '#F1F5F9', padding: '6px 10px', fontFamily: "'JetBrains Mono', monospace", fontSize: '11px', letterSpacing: '0.06em', outline: 'none', cursor: 'pointer' }}
+                >
+                  <option value="5">5 MIN</option>
+                  <option value="15">15 MIN</option>
+                  <option value="30">30 MIN</option>
+                  <option value="60">1 HOUR</option>
+                  <option value="NEVER">NEVER</option>
                 </select>
               ),
             },
             {
               label: 'Master Password Hint',
               desc: 'Stored locally only — never transmitted',
-              control: <ArcaButton variant="secondary" size="sm">SET HINT</ArcaButton>,
+              control: hintEditing ? (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    value={hintInput}
+                    onChange={e => setHintInput(e.target.value)}
+                    placeholder="Enter hint..."
+                    style={{
+                      width: '140px',
+                      backgroundColor: '#0A0C0F', border: '1px solid rgba(54,60,69,0.5)', borderRadius: '3px',
+                      color: '#F1F5F9', padding: '5px 8px', fontFamily: "'Ubuntu', sans-serif", fontSize: '12px', outline: 'none'
+                    }}
+                    onFocus={e => { e.target.style.borderColor = '#F90000'; }}
+                    onBlur={e => { e.target.style.borderColor = 'rgba(54,60,69,0.5)'; }}
+                    autoFocus
+                  />
+                  <ArcaButton
+                    variant="primary"
+                    size="sm"
+                    onClick={() => {
+                      localStorage.setItem('ARCA_PASSWORD_HINT', hintInput);
+                      setHintValue(hintInput);
+                      setHintEditing(false);
+                      toast.success('Password hint saved locally');
+                    }}
+                  >
+                    SAVE
+                  </ArcaButton>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  {hintValue && <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '10px', color: '#10B981', letterSpacing: '0.06em' }}>HINT SET</span>}
+                  <ArcaButton variant="secondary" size="sm" onClick={() => { setHintInput(hintValue); setHintEditing(true); }}>
+                    {hintValue ? 'EDIT HINT' : 'SET HINT'}
+                  </ArcaButton>
+                </div>
+              ),
             },
           ],
         },
