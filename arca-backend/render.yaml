@@ -4,6 +4,7 @@ services:
     env: docker
     region: singapore
     plan: free
+    rootDir: arca-backend
     dockerfilePath: ./Dockerfile
     envVars:
       - key: SUPABASE_DB_URL
