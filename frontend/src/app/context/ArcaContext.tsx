@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { Credential, SyncLog, Device } from '@/types';
 import { apiClient, EncryptedCredential } from '@/services/apiClient';
 import { supabase } from '@/lib/supabaseClient';
@@ -22,7 +22,12 @@ interface ArcaContextType {
   login: (email: string, password: string) => Promise<boolean>;
   unlock: (password: string) => Promise<boolean>;
   logout: () => void;
+  lockVault: () => void;
   updateProfile: (username: string, avatarUrl: string | null) => Promise<void>;
+  
+  // Security
+  autoLockTimeout: string;
+  setAutoLockTimeout: (val: string) => void;
 
   // Vault
   credentials: Credential[];
@@ -96,6 +101,48 @@ export function ArcaProvider({ children }: { children: React.ReactNode }) {
   // Vault key lives only in memory — never serialised, never sent anywhere.
   const [vaultKey, setVaultKey] = useState<CryptoKey | null>(null);
 
+  // Security Settings
+  const [autoLockTimeout, setAutoLockTimeoutState] = useState<string>(
+    () => localStorage.getItem('ARCA_AUTO_LOCK_TIMEOUT') || '5'
+  );
+
+  const setAutoLockTimeout = useCallback((val: string) => {
+    setAutoLockTimeoutState(val);
+    localStorage.setItem('ARCA_AUTO_LOCK_TIMEOUT', val);
+  }, []);
+
+  const lockVault = useCallback(() => {
+    setIsVaultUnlocked(false);
+    setVaultKey(null);
+    setCredentials([]);
+  }, []);
+
+  // Inactivity Timer
+  useEffect(() => {
+    if (!isVaultUnlocked || autoLockTimeout === 'NEVER') return;
+
+    const timeoutMinutes = parseInt(autoLockTimeout, 10);
+    if (isNaN(timeoutMinutes)) return;
+
+    let inactivityTimer: ReturnType<typeof setTimeout>;
+
+    const resetTimer = () => {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        lockVault();
+      }, timeoutMinutes * 60 * 1000);
+    };
+
+    const events = ['mousemove', 'keydown', 'mousedown', 'touchstart', 'scroll'];
+    events.forEach(e => window.addEventListener(e, resetTimer));
+    resetTimer();
+
+    return () => {
+      clearTimeout(inactivityTimer);
+      events.forEach(e => window.removeEventListener(e, resetTimer));
+    };
+  }, [isVaultUnlocked, autoLockTimeout, lockVault]);
+
   // ── login ──────────────────────────────────────────────────────────────────
 
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
@@ -126,7 +173,7 @@ export function ArcaProvider({ children }: { children: React.ReactNode }) {
       return true;
     } catch (error) {
       console.error('Login error:', error);
-      return false;
+      throw error;
     }
   }, []);
 
@@ -155,6 +202,13 @@ export function ArcaProvider({ children }: { children: React.ReactNode }) {
         const decryptedCredentials = await Promise.all(
           (response.data ?? []).map((cred) => decryptCredential(cred, derivedKey)),
         );
+
+        // 4. Fetch profile to restore state after reload
+        const profile = await apiClient.getProfile().catch(() => null);
+        if (profile) {
+          setUsername(profile.username || email.split('@')[0]);
+          setAvatarUrl(profile.avatarUrl || null);
+        }
 
         setVaultKey(derivedKey);
         setIsVaultUnlocked(true);
@@ -335,7 +389,10 @@ export function ArcaProvider({ children }: { children: React.ReactNode }) {
         login,
         unlock,
         logout,
+        lockVault,
         updateProfile,
+        autoLockTimeout,
+        setAutoLockTimeout,
         credentials,
         addCredential,
         updateCredential,

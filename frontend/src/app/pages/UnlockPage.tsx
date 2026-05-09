@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Lock, Unlock } from 'lucide-react';
 import { ArcaButton } from '../components/ui/ArcaButton';
 import { ArcaInput } from '../components/ui/ArcaInput';
@@ -14,6 +14,16 @@ export function UnlockPage() {
   const [rotate, setRotate] = useState(0);
   const { unlock, setActiveScreen } = useArca();
   const navigate = useNavigate();
+
+  const [hint, setHint] = useState<string | null>(null);
+  const [showHint, setShowHint] = useState(false);
+
+  useEffect(() => {
+    const savedHint = localStorage.getItem('ARCA_PASSWORD_HINT');
+    if (savedHint) {
+      setHint(savedHint);
+    }
+  }, []);
 
   const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,6 +126,28 @@ export function UnlockPage() {
               Unlock Vault
             </ArcaButton>
           </form>
+
+          {hint && (
+            <div style={{ marginTop: '16px', textAlign: 'center' }}>
+              {showHint ? (
+                <div style={{ backgroundColor: 'rgba(54,60,69,0.3)', padding: '12px', borderRadius: '4px', border: '1px solid rgba(54,60,69,0.5)', animation: 'dissolveIn 300ms ease' }}>
+                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '9px', color: '#94A3B8', letterSpacing: '0.1em', marginBottom: '4px' }}>PASSWORD HINT</div>
+                  <div style={{ fontFamily: "'Ubuntu', sans-serif", fontSize: '13px', color: '#F1F5F9' }}>{hint}</div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowHint(true)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', fontSize: '12px', fontFamily: "'Ubuntu', sans-serif', transition: 'color 200ms ease" }}
+                  onMouseEnter={e => (e.currentTarget.style.color = '#94A3B8')}
+                  onMouseLeave={e => (e.currentTarget.style.color = '#475569')}
+                >
+                  Show password hint
+                </button>
+              )}
+            </div>
+          )}
+
           <p style={{ fontSize: '12px', color: '#475569', margin: '16px 0 0', fontFamily: "'Ubuntu', sans-serif", lineHeight: 1.6, textAlign: 'center' }}>
             This is the only way to unlock your vault. It is never sent anywhere.
           </p>
@@ -139,6 +171,10 @@ export function UnlockPage() {
           40% { transform: rotate(10deg); }
           60% { transform: rotate(-10deg); }
           80% { transform: rotate(5deg); }
+        }
+        @keyframes dissolveIn {
+          from { opacity: 0; transform: translateY(-4px); }
+          to { opacity: 1; transform: translateY(0); }
         }
         @keyframes dissolveUp {
           from { opacity: 1; transform: translateY(0); }

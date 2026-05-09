@@ -4,12 +4,16 @@ import { Sidebar } from '../components/layout/Sidebar';
 import { CredentialCard } from '../components/ui/CredentialCard';
 import { AddEditPanel } from '../components/ui/AddEditPanel';
 import { ArcaButton } from '../components/ui/ArcaButton';
-import { Outlet } from 'react-router';
+import { Outlet, Navigate } from 'react-router';
 import { useArca } from '../context/ArcaContext';
 import { Credential } from '@/types';
 
 export function VaultLayout() {
-  const { isOnline } = useArca();
+  const { isOnline, isAuthenticated, isVaultUnlocked } = useArca();
+
+  if (!isAuthenticated || !isVaultUnlocked) {
+    return <Navigate to="/login" replace />;
+  }
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: '#0A0C0F' }}>
